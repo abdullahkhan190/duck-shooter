@@ -183,6 +183,7 @@ function seatPlayer(ws, msg) {
   };
   room.players.push(player);
   ws.room = room;
+  console.log(`${player.name} joined ${room.code} (${room.players.length}/2)`);
   sendLobby(room);
   if (room.players.length === 2) begin(room);
 }
@@ -223,9 +224,8 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server: server });
 
 wss.on("connection", (ws) => {
-  ws.isAlive = true;
-  ws.on("pong", () => {
-    ws.isAlive = true;
+  ws.on("error", (err) => {
+    console.error("socket error:", err.message);
   });
 
   ws.on("message", (data) => {
@@ -282,7 +282,10 @@ wss.on("connection", (ws) => {
     }
   });
 
-  ws.on("close", () => removePlayer(ws));
+  ws.on("close", (code, reason) => {
+    console.log(`socket closed code=${code} reason=${reason}`);
+    removePlayer(ws);
+  });
 });
 
 setInterval(() => {
@@ -292,17 +295,6 @@ setInterval(() => {
     broadcastState(room);
   }
 }, 100);
-
-setInterval(() => {
-  for (const ws of wss.clients) {
-    if (ws.isAlive === false) {
-      ws.terminate();
-      continue;
-    }
-    ws.isAlive = false;
-    ws.ping();
-  }
-}, 15000);
 
 server.listen(port, () => {
   const actual = server.address().port;
