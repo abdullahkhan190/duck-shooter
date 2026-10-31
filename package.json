@@ -1,0 +1,15 @@
+{
+  "name": "duck-shooter",
+  "version": "1.0.0",
+  "description": "Two-player duck shooting game. The first hit scores.",
+  "license": "ISC",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-core.js && node test-online.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

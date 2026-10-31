@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Duck Shooter</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cellipse cx='7' cy='9' rx='5' ry='3' fill='%23efe6d4'/%3E%3Ccircle cx='11.2' cy='7.2' r='2.3' fill='%231f6b45'/%3E%3Cpath d='M13 7.2 L15.4 8.2 L13 8.4 Z' fill='%23f0b429'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="game" width="1280" height="720" aria-label="Duck Shooter game"></canvas>
+    <p id="status" class="sr-only" aria-live="polite"></p>
+    <div id="ui">
+      <section id="menu" class="card">
+        <div class="stamp">Open season</div>
+        <p class="eyebrow">Two hunters, one duck</p>
+        <h1>Duck Shooter</h1>
+        <p class="lede">A duck cuts across the marsh. The first shot that hits it scores.</p>
+        <p id="rule" class="rule"></p>
+        <div class="names">
+          <label><i class="swatch s0"></i>Player 1 · mouse
+            <input id="name1" maxlength="12" autocomplete="off" value="Ada">
+          </label>
+          <label><i class="swatch s1"></i>Player 2 · keyboard
+            <input id="name2" maxlength="12" autocomplete="off" value="Bo">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="btn-local" class="primary" type="button">Play on this screen</button>
+          <button id="btn-online" class="secondary" type="button">Play online</button>
+        </div>
+        <ul class="help">
+          <li>Player 1 aims with the mouse and clicks to shoot.</li>
+          <li>Player 2 aims with the arrow keys or WASD, and shoots with Space.</li>
+          <li>Online, each player uses their own mouse. The earlier hit wins.</li>
+          <li>Esc leaves the marsh. M mutes the guns.</li>
+        </ul>
+        <button id="btn-mute" class="texty" type="button">Sound on</button>
+        <p id="menu-error" class="error"></p>
+      </section>
+
+      <section id="lobby" class="card hidden">
+        <p class="eyebrow">Same duck, two screens</p>
+        <h2>Online room</h2>
+        <form id="join-form">
+          <label>Your name
+            <input id="online-name" maxlength="12" autocomplete="off" value="Ada">
+          </label>
+          <label>Room code
+            <input id="room-code" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Blank hosts a new room">
+          </label>
+          <div class="actions">
+            <button id="btn-join" class="primary" type="submit">Join room</button>
+            <button id="btn-back" class="secondary" type="button">Back</button>
+          </div>
+        </form>
+        <div id="room-info" class="hidden">
+          <p class="code-line">Code <strong id="room-code-out"></strong></p>
+          <button id="btn-copy" class="texty" type="button">Copy code</button>
+          <p id="share-url"></p>
+          <ul id="player-list"></ul>
+          <p id="wait">Waiting for the other hunter…</p>
+          <button id="btn-lobby-back" class="secondary" type="button">Back</button>
+        </div>
+        <p id="lobby-error" class="error"></p>
+      </section>
+
+      <section id="end" class="card hidden">
+        <p class="eyebrow">Bag limit</p>
+        <h2 id="end-title"></h2>
+        <p id="end-score"></p>
+        <p id="end-note"></p>
+        <div class="actions">
+          <button id="btn-again" class="primary" type="button">Fly again</button>
+          <button id="btn-menu" class="secondary" type="button">Menu</button>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="game-core.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
