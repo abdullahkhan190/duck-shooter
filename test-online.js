@@ -54,10 +54,15 @@ async function main() {
 
     const ada = await connect(url);
     const bo = await connect(url);
+    const cy = await connect(url);
     ada.ws.send(JSON.stringify({ type: "hello", name: "Ada", room: "" }));
     const lobby = await waitFor(ada.bag, (msg) => msg.type === "lobby" && msg.code);
     assert(lobby.code.length === 4, "room code should be 4 characters");
     bo.ws.send(JSON.stringify({ type: "hello", name: "Bo", room: lobby.code }));
+    const waiting = await waitFor(ada.bag, (msg) => msg.type === "lobby" && msg.players && msg.players.length === 2);
+    assert(waiting.players.length === 2, "two hunters wait for a third");
+    assert(!ada.bag.some((msg) => msg.type === "state"), "the duck waits for the third hunter");
+    cy.ws.send(JSON.stringify({ type: "hello", name: "Cy", room: lobby.code }));
 
     const onScreen = (msg) => {
       if (msg.type !== "state" || msg.phase !== "fly" || !msg.duck) return false;
@@ -74,7 +79,9 @@ async function main() {
     const scored = await waitFor(ada.bag, (msg) => msg.type === "state" && msg.scores && msg.scores[0] === 1, 2000);
     assert(scored.scores[1] === 0, "only the first hunter scores");
     const seenByBo = await waitFor(bo.bag, (msg) => msg.type === "state" && msg.scores && msg.scores[0] === 1, 2000);
-    assert(seenByBo.names[0] === "Ada" && seenByBo.names[1] === "Bo", "both screens share the match");
+    assert(seenByBo.names.length === 3 && seenByBo.names[2] === "Cy", "three screens share the match");
+    const cySight = await waitFor(cy.bag, (msg) => msg.type === "state" && msg.you === 2, 2000);
+    assert(cySight.you === 2, "the third hunter is seat 2");
 
     ada.ws.close();
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -89,13 +96,14 @@ async function main() {
     assert(!bo.bag.some((msg) => msg.type === "left"), "a short drop does not end the match");
     adaAgain.ws.close();
     bo.ws.close();
+    cy.ws.close();
     console.log("online ok");
   } finally {
     child.kill();
   }
 }
 
-main().catch((err) => {
+main().then(() => process.exit(0)).catch((err) => {
   console.error(err);
   process.exit(1);
 });

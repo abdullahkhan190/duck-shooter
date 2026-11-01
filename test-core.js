@@ -118,6 +118,16 @@ function testNames() {
   assert(match.names[1] === "Hunter 2", "blank names get a seat name");
 }
 
+function testThreeHunters() {
+  const match = core.createMatch(["Ada", "Bo", "Cy"], 0, { seed: 6, lagGrace: 0 });
+  assert(match.names.length === 3 && match.ammo.length === 3, "a room can seat three hunters");
+  core.update(match, match.phaseUntil);
+  const t = match.duck.born + 400;
+  const sample = core.sampleDuck(match.duck, t);
+  core.offerShot(match, 2, sample.x, sample.y, t, t);
+  core.update(match, t);
+  assert(match.scores[2] === 1 && match.scores[0] === 0 && match.scores[1] === 0, "the third hunter can score");
+}
 function testDuckSpeed() {
   const slow = core.createMatch(["A", "B"], 0, { seed: 4, duckSpeed: 140 });
   const fast = core.createMatch(["A", "B"], 0, { seed: 4, duckSpeed: 640 });
@@ -141,4 +151,5 @@ testAmmo();
 testReload();
 testNames();
 testDuckSpeed();
+testThreeHunters();
 console.log("core ok");

@@ -342,6 +342,7 @@ button.texty {
 
 .swatch.s0 { background: #ff7a45; }
 .swatch.s1 { background: #49c6ff; }
+.swatch.s2 { background: #d6e14a; }
 
 @media (max-width: 560px) {
   h1 { font-size: 42px; padding-right: 0; }

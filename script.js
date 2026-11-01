@@ -1,6 +1,6 @@
 const WIDTH = DuckCore.WIDTH;
 const HEIGHT = DuckCore.HEIGHT;
-const COLORS = ["#ff7a45", "#49c6ff"];
+const COLORS = ["#ff7a45", "#49c6ff", "#d6e14a"];
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
@@ -80,7 +80,7 @@ let nextQuack = Date.now() + 2200;
 let p2Moved = false;
 let shake = 0;
 let endShown = false;
-let flashUntil = [0, 0];
+let flashUntil = [0, 0, 0];
 let lastFrame = performance.now();
 let socket = null;
 let socketOnPurpose = false;
@@ -100,7 +100,7 @@ const STICK_LIMIT = 46;
 let clockOffset = 0;
 let lastAimSent = 0;
 let localBlastAt = 0;
-const net = { view: null, opponent: null };
+const net = { view: null, opponents: {} };
 
 const audio = {
   ctx: null,
@@ -304,7 +304,7 @@ function quitToMenu() {
   mode = "menu";
   match = null;
   net.view = null;
-  net.opponent = null;
+  net.opponents = {};
   endShown = false;
   menuError.textContent = "";
   hide(endCard);
@@ -364,12 +364,14 @@ function showLobbyRoom(msg) {
     item.append(swatch, document.createTextNode(player.name + (player.index === msg.you ? " · you" : "")));
     list.append(item);
   }
-  document.getElementById("wait").textContent =
-    msg.players.length < 2 ? "Waiting for the other hunter…" : "Both hunters are in the blind.";
+  const waiting = 3 - msg.players.length;
+  document.getElementById("wait").textContent = waiting > 0
+    ? "Waiting for " + waiting + " more hunter" + (waiting === 1 ? "" : "s") + "…"
+    : "All three hunters are in the blind.";
   const host = msg.you === 0;
   speedRoom.disabled = !host;
   document.getElementById("speed-room-note").textContent = host
-    ? "Set this before the other hunter joins."
+    ? "Set this before the other hunters join."
     : "The host sets the duck speed.";
   rememberOnlineSpeed(msg.duckSpeed);
 }
@@ -486,7 +488,7 @@ function onNet(msg) {
   }
   if (msg.type === "fx" && msg.fx) playFx(msg.fx);
   if (msg.type === "aim") {
-    net.opponent = { x: msg.x, y: msg.y, player: msg.player, at: Date.now() };
+    net.opponents[msg.player] = { x: msg.x, y: msg.y, player: msg.player, at: Date.now() };
   }
   if (msg.type === "note") endNote.textContent = msg.message || "";
 }
@@ -964,23 +966,36 @@ function drawCrosshair(x, y, color, label, hint, cooling) {
 }
 
 function drawHud(view, time) {
-  const hot0 = Date.now() < flashUntil[0];
-  const hot1 = Date.now() < flashUntil[1];
-  drawPlate(24, 18, view.names[0], view.scores[0], COLORS[0], false, hot0, view.you === 0);
-  drawPlate(WIDTH - 24, 18, view.names[1], view.scores[1], COLORS[1], true, hot1, view.you === 1);
-  drawShells(46, 98, ammoLeft(view, 0), COLORS[0], false);
-  drawShells(WIDTH - 46, 98, ammoLeft(view, 1), COLORS[1], true);
-  ctx.fillStyle = "rgba(16, 14, 12, 0.9)";
-  roundRect(WIDTH / 2 - 86, 14, 172, 62, 14);
-  ctx.fill();
-  if (linkStatus) paintText(linkStatus, WIDTH / 2, 112, "#ffe08a", 28, "center");
-  paintText("PASS " + view.round, WIDTH / 2, 34, "#fffaf0", 26, "center");
-  paintText("FIRST TO " + DuckCore.WIN_SCORE, WIDTH / 2, 60, "#ffe08a", 15, "center");
+  if (view.names.length > 2) {
+    const width = 250;
+    const gap = (WIDTH - 48 - view.names.length * width) / (view.names.length - 1);
+    for (let i = 0; i < view.names.length; i++) {
+      const x = 24 + i * (width + gap);
+      const color = COLORS[i] || "#fffaf0";
+      drawPlate(x, 14, view.names[i], view.scores[i], color, false, Date.now() < flashUntil[i], view.you === i);
+      drawShells(x + 22, 96, ammoLeft(view, i), color, false);
+    }
+    paintText("PASS " + view.round + "   ·   FIRST TO " + DuckCore.WIN_SCORE, WIDTH / 2, 132, "#ffe08a", 18, "center");
+  } else {
+    const hot0 = Date.now() < flashUntil[0];
+    const hot1 = Date.now() < flashUntil[1];
+    drawPlate(24, 18, view.names[0], view.scores[0], COLORS[0], false, hot0, view.you === 0);
+    drawPlate(WIDTH - 24, 18, view.names[1], view.scores[1], COLORS[1], true, hot1, view.you === 1);
+    drawShells(46, 98, ammoLeft(view, 0), COLORS[0], false);
+    drawShells(WIDTH - 46, 98, ammoLeft(view, 1), COLORS[1], true);
+    ctx.fillStyle = "rgba(16, 14, 12, 0.9)";
+    roundRect(WIDTH / 2 - 86, 14, 172, 62, 14);
+    ctx.fill();
+    paintText("PASS " + view.round, WIDTH / 2, 34, "#fffaf0", 26, "center");
+    paintText("FIRST TO " + DuckCore.WIN_SCORE, WIDTH / 2, 60, "#ffe08a", 15, "center");
+  }
+  if (linkStatus) paintText(linkStatus, WIDTH / 2, view.names.length > 2 ? 160 : 112, "#ffe08a", 28, "center");
 
   const banner = DuckCore.currentBanner(view, time);
   if (banner && view.phase !== "win") {
+    const crowded = view.names.length > 2;
     const size = view.phase === "countdown" ? 108 : 64;
-    const y = view.phase === "countdown" ? 158 : 168;
+    const y = view.phase === "countdown" ? (crowded ? 230 : 158) : (crowded ? 210 : 168);
     const color = view.bannerPlayer != null && view.phase !== "countdown" ? COLORS[view.bannerPlayer] : "#fffaf0";
     paintText(banner, WIDTH / 2, y, color, size, "center");
     if (view.phase === "countdown") {
@@ -992,9 +1007,9 @@ function drawHud(view, time) {
       ctx.lineWidth = 4;
       const hint = mode === "local"
         ? (usesTouchControls() ? "Stick or tap to shoot    ·    arrows or WASD, then Space" : "Mouse clicks    ·    arrows or WASD, then Space")
-        : (usesTouchControls() ? "Stick or tap the duck before the other hunter" : "Click the duck before the other hunter");
-      ctx.strokeText(hint, WIDTH / 2, 248);
-      ctx.fillText(hint, WIDTH / 2, 248);
+        : (usesTouchControls() ? "Stick or tap the duck before the other hunters" : "Click the duck before the other hunters");
+      ctx.strokeText(hint, WIDTH / 2, crowded ? 320 : 248);
+      ctx.fillText(hint, WIDTH / 2, crowded ? 320 : 248);
     }
   }
 
@@ -1190,9 +1205,11 @@ function render() {
     announce(match, time);
   } else if (mode === "online" && net.view) {
     const seat = net.view.you;
-    if (net.opponent && Date.now() - net.opponent.at < 400) {
-      const other = net.opponent.player;
-      drawCrosshair(net.opponent.x, net.opponent.y, COLORS[other] || "#fff", net.view.names[other] || "", "", false);
+    const nowMs = Date.now();
+    for (const key of Object.keys(net.opponents)) {
+      const other = net.opponents[key];
+      if (!other || nowMs - other.at >= 400 || other.player === seat) continue;
+      drawCrosshair(other.x, other.y, COLORS[other.player] || "#fff", net.view.names[other.player] || "", "", false);
     }
     const emptyHint = ammoLeft(net.view, seat) === 0 ? "Empty" : "";
     drawCrosshair(aim.x, aim.y, COLORS[seat] || "#fff", net.view.names[seat] || "You", emptyHint, cooling(net.view, seat, time));
@@ -1209,7 +1226,7 @@ function announce(view, time) {
   const status = document.getElementById("status");
   if (!status || !view) return;
   const banner = DuckCore.currentBanner(view, time);
-  const text = view.names[0] + " " + view.scores[0] + ", " + view.names[1] + " " + view.scores[1] + (banner ? ". " + banner : "");
+  const text = view.names.map((name, index) => name + " " + view.scores[index]).join(", ") + (banner ? ". " + banner : "");
   if (text === lastStatus) return;
   lastStatus = text;
   status.textContent = text;
@@ -1221,8 +1238,10 @@ function syncEnd() {
     if (!endShown) {
       endShown = true;
       endTitle.textContent = view.names[view.winner] + " wins";
-      endScore.textContent = view.names[0] + "  " + view.scores[0] + "    ·    " + view.names[1] + "  " + view.scores[1];
-      endNote.textContent = mode === "online" ? "Both players press Fly again for a rematch." : "Same marsh, new ducks.";
+      endScore.textContent = view.names.map((name, index) => name + "  " + view.scores[index]).join("    ·    ");
+      endNote.textContent = mode === "online"
+        ? (view.names.length > 2 ? "All three hunters press Fly again for a rematch." : "Both players press Fly again for a rematch.")
+        : "Same marsh, new ducks.";
       againBtn.textContent = "Fly again";
       show(endCard);
       speedAgain.disabled = mode === "online" && !(net.view && net.view.you === 0);
@@ -1317,7 +1336,7 @@ againBtn.addEventListener("click", () => {
   if (mode === "online" && socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "again" }));
     againBtn.textContent = "Waiting…";
-    endNote.textContent = "Waiting for the other hunter…";
+    endNote.textContent = "Waiting for the other hunters…";
   }
 });
 

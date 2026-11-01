@@ -56,12 +56,22 @@
 
   function createMatch(names, now, opts) {
     const options = opts || {};
-    let first = cleanName(names && names[0], "Hunter 1");
-    let second = cleanName(names && names[1], "Hunter 2");
-    if (first === second) second = second.slice(0, 10) + " 2";
+    const incoming = names && names.length ? names : ["Hunter 1", "Hunter 2"];
+    const used = {};
+    const cleaned = incoming.map((value, index) => {
+      let name = cleanName(value, "Hunter " + (index + 1));
+      if (used[name]) {
+        const suffix = " " + (index + 1);
+        name = (name.slice(0, 12 - suffix.length) + suffix).trim();
+      }
+      if (used[name]) name = "Hunter " + (index + 1);
+      used[name] = true;
+      return name;
+    });
+    const count = cleaned.length;
     return {
-      names: [first, second],
-      scores: [0, 0],
+      names: cleaned,
+      scores: Array(count).fill(0),
       winner: null,
       round: 1,
       phase: "countdown",
@@ -73,8 +83,8 @@
       prop: null,
       best: null,
       resolveAt: 0,
-      cooldowns: [0, 0],
-      ammo: [BULLETS, BULLETS],
+      cooldowns: Array(count).fill(0),
+      ammo: Array(count).fill(BULLETS),
       lastQuack: now,
       lagGrace: options.lagGrace || 0,
       rng: mulberry32(options.seed != null ? options.seed : now >>> 0),
@@ -143,7 +153,7 @@
     match.phase = "fly";
     match.phaseStarted = now;
     match.phaseUntil = Infinity;
-    match.ammo = [BULLETS, BULLETS];
+    match.ammo = match.names.map(function () { return BULLETS; });
   }
 
   function startTaunt(match, now, x, banner, events, type) {
@@ -239,7 +249,7 @@
 
   function offerShot(match, player, x, y, t, now) {
     const events = [];
-    if (match.phase !== "fly" || !match.duck || !match.duck.alive || (player !== 0 && player !== 1)) {
+    if (match.phase !== "fly" || !match.duck || !match.duck.alive || player < 0 || player >= match.names.length) {
       events.push({ type: "reject" });
       return events;
     }
@@ -271,13 +281,11 @@
     events.push({ type: "blast", player: player, x: aimX, y: aimY, hit: hit, t: when });
     if (!hit) return events;
 
-    if (!match.best) {
+    if (!match.best || when < match.best.t) {
+      if (!match.best) match.resolveAt = now + match.lagGrace;
       match.best = { t: when, player: player, x: aimX, y: aimY, tie: false };
-      match.resolveAt = now + match.lagGrace;
-    } else if (!match.best.tie && when === match.best.t && player !== match.best.player) {
+    } else if (when === match.best.t && (match.best.tie || player !== match.best.player)) {
       match.best = { t: when, tie: true };
-    } else if (!match.best.tie && when < match.best.t) {
-      match.best = { t: when, player: player, x: aimX, y: aimY, tie: false };
     }
     return events;
   }

@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const { WebSocketServer, WebSocket } = require("ws");
 const DuckCore = require("./game-core");
+const ROOM_SIZE = 3;
 
 const FILES = {
   "/index.html": "text/html; charset=utf-8",
@@ -98,7 +99,7 @@ function pump(room) {
 }
 
 function begin(room) {
-  if (room.players.length < 2) return;
+  if (room.players.length < ROOM_SIZE) return;
   room.players.forEach((player, index) => {
     player.index = index;
   });
@@ -107,7 +108,7 @@ function begin(room) {
     Date.now(),
     { lagGrace: 120, seed: Math.floor(Math.random() * 0x7fffffff), duckSpeed: room.duckSpeed }
   );
-  room.again = [false, false];
+  room.again = room.players.map(function () { return false; });
   broadcastState(room);
 }
 
@@ -148,7 +149,7 @@ function expirePlayer(room, player) {
   room.players.forEach((entry, index) => {
     entry.index = index;
   });
-  if (wasPlaying) broadcast(room, { type: "left", message: "The other hunter left the marsh." });
+  if (wasPlaying) broadcast(room, { type: "left", message: "A hunter left the marsh." });
   sendLobby(room);
 }
 
@@ -201,7 +202,7 @@ function seatPlayer(ws, msg) {
   }
 
   let player = room.players.find((entry) => entry.name === name);
-  if (!player && room.players.length >= 2) {
+  if (!player && room.players.length >= ROOM_SIZE) {
     send(ws, { type: "error", message: "That room is already full." });
     return;
   }
@@ -219,13 +220,13 @@ function seatPlayer(ws, msg) {
   player.ws = ws;
   player.leftAt = 0;
   ws.room = room;
-  console.log(`${player.name} joined ${room.code} (${room.players.length}/2)`);
+  console.log(`${player.name} joined ${room.code} (${room.players.length}/${ROOM_SIZE})`);
   if (room.match) {
     send(ws, snapshot(room.match, Date.now(), player.index, room.duckSpeed));
     return;
   }
   sendLobby(room);
-  if (room.players.length === 2) begin(room);
+  if (room.players.length === ROOM_SIZE) begin(room);
 }
 
 const server = http.createServer((req, res) => {
@@ -312,8 +313,9 @@ function handleMessage(ws, data) {
       const now = Date.now();
       if (ws.lastAimAt && now - ws.lastAimAt < 40) return;
       ws.lastAimAt = now;
-      const other = room.players.find((entry) => entry.ws && entry.ws !== ws);
-      if (other) send(other.ws, { type: "aim", x: msg.x, y: msg.y, player: player.index });
+      for (const entry of room.players) {
+        if (entry.ws && entry.ws !== ws) send(entry.ws, { type: "aim", x: msg.x, y: msg.y, player: player.index });
+      }
       return;
     }
 
@@ -340,9 +342,10 @@ function handleMessage(ws, data) {
 
     if (msg.type === "again") {
       if (!room.match || room.match.phase !== "win") return;
+      if (!room.again || room.again.length !== room.players.length) room.again = room.players.map(function () { return false; });
       room.again[player.index] = true;
-      if (room.again[0] && room.again[1]) begin(room);
-      else send(ws, { type: "note", message: "Waiting for the other hunter…" });
+      if (room.again.every(Boolean)) begin(room);
+      else send(ws, { type: "note", message: "Waiting for the other hunters…" });
     }
 }
 
