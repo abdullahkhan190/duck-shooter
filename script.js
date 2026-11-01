@@ -96,7 +96,7 @@ const touchPoints = new Map();
 let pinch = null;
 let armedTouchShot = false;
 const stick = { id: null, x: 0, y: 0, active: false };
-const STICK_LIMIT = 42;
+const STICK_LIMIT = 46;
 let clockOffset = 0;
 let lastAimSent = 0;
 let localBlastAt = 0;
@@ -1410,10 +1410,11 @@ function releaseStick() {
 
 function moveAimFromStick(dt) {
   const mag = Math.hypot(stick.x, stick.y);
-  if (mag < 0.12) return;
-  const speed = 1100;
-  aim.x = clamp(aim.x + stick.x * speed * dt, 0, WIDTH);
-  aim.y = clamp(aim.y + stick.y * speed * dt, 0, HEIGHT);
+  if (mag < 0.06) return;
+  const amount = Math.min(1, mag);
+  const speed = 2800 * Math.pow(amount, 1.85);
+  aim.x = clamp(aim.x + (stick.x / amount) * speed * dt, 0, WIDTH);
+  aim.y = clamp(aim.y + (stick.y / amount) * speed * dt, 0, HEIGHT);
 }
 
 function followStick(event) {

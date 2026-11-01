@@ -64,8 +64,8 @@ canvas.aim { cursor: none; }
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   border: 3px solid #2a2118;
   background: var(--cream);
