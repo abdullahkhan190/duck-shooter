@@ -78,6 +78,7 @@ function snapshot(match, now, you) {
     duck: match.duck,
     prop: match.prop,
     cooldowns: match.cooldowns.slice(),
+    ammo: match.ammo.slice(),
   };
 }
 
@@ -125,13 +126,16 @@ function sendLobby(room) {
   for (const player of room.players) send(player.ws, lobbyPayload(room, player.index));
 }
 
-function removePlayer(ws) {
-  const room = ws.room;
-  if (!room) return;
-  ws.room = null;
-  const next = room.players.filter((player) => player.ws !== ws);
-  if (next.length === room.players.length) return;
-  room.players = next;
+const REJOIN_MS = 15000;
+
+function playerIsOpen(player) {
+  return !!(player.ws && player.ws.readyState === WebSocket.OPEN);
+}
+
+function expirePlayer(room, player) {
+  if (!rooms.get(room.code) || playerIsOpen(player) || room.players.indexOf(player) === -1) return;
+  console.log(`${player.name} left ${room.code}`);
+  room.players = room.players.filter((entry) => entry !== player);
   room.again = [false, false];
   if (room.players.length === 0) {
     rooms.delete(room.code);
@@ -139,23 +143,45 @@ function removePlayer(ws) {
   }
   const wasPlaying = room.match != null;
   room.match = null;
-  room.players.forEach((player, index) => {
-    player.index = index;
+  room.players.forEach((entry, index) => {
+    entry.index = index;
   });
   if (wasPlaying) broadcast(room, { type: "left", message: "The other hunter left the marsh." });
   sendLobby(room);
 }
 
+function detachPlayer(ws) {
+  const room = ws.room;
+  if (!room) return;
+  const player = room.players.find((entry) => entry.ws === ws);
+  ws.room = null;
+  if (!player) return;
+  player.ws = null;
+  player.leftAt = Date.now();
+  console.log(`${player.name} dropped from ${room.code}, holding the seat`);
+  setTimeout(() => expirePlayer(room, player), REJOIN_MS);
+}
+
+function removePlayer(ws) {
+  const room = ws.room;
+  if (!room) return;
+  const player = room.players.find((entry) => entry.ws === ws);
+  ws.room = null;
+  if (!player) return;
+  player.ws = null;
+  expirePlayer(room, player);
+}
+
 function seatPlayer(ws, msg) {
   if (ws.room) return;
-  if (rooms.size > 100 && !cleanCode(msg.room)) {
-    send(ws, { type: "error", message: "The marsh is full. Try again in a minute." });
-    return;
-  }
-
+  const name = DuckCore.cleanName(msg.name, "Hunter");
   const requested = String(msg.room || "").trim();
   let room = null;
   if (!requested) {
+    if (rooms.size > 100) {
+      send(ws, { type: "error", message: "The marsh is full. Try again in a minute." });
+      return;
+    }
     const code = uniqueCode();
     room = { code: code, players: [], match: null, again: [false, false] };
     rooms.set(code, room);
@@ -170,20 +196,32 @@ function seatPlayer(ws, msg) {
       send(ws, { type: "error", message: "No room uses that code." });
       return;
     }
-    if (room.players.length >= 2 || room.match) {
-      send(ws, { type: "error", message: "That room is already full." });
-      return;
-    }
   }
 
-  const player = {
-    ws: ws,
-    name: DuckCore.cleanName(msg.name, "Hunter"),
-    index: room.players.length,
-  };
-  room.players.push(player);
+  let player = room.players.find((entry) => entry.name === name);
+  if (!player && room.players.length >= 2) {
+    send(ws, { type: "error", message: "That room is already full." });
+    return;
+  }
+  if (!player) {
+    player = { ws: null, name: name, index: room.players.length, leftAt: 0 };
+    room.players.push(player);
+  } else if (player.ws && player.ws !== ws) {
+    player.ws.room = null;
+    try {
+      player.ws.close();
+    } catch (err) {
+      // The old socket is already going away.
+    }
+  }
+  player.ws = ws;
+  player.leftAt = 0;
   ws.room = room;
   console.log(`${player.name} joined ${room.code} (${room.players.length}/2)`);
+  if (room.match) {
+    send(ws, snapshot(room.match, Date.now(), player.index));
+    return;
+  }
   sendLobby(room);
   if (room.players.length === 2) begin(room);
 }
@@ -221,7 +259,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const wss = new WebSocketServer({ server: server });
+const wss = new WebSocketServer({ server: server, perMessageDeflate: false });
 
 wss.on("connection", (ws) => {
   ws.on("error", (err) => {
@@ -229,6 +267,21 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("message", (data) => {
+    try {
+      handleMessage(ws, data);
+    } catch (err) {
+      console.error("message error:", err);
+    }
+  });
+
+  ws.on("close", (code, reason) => {
+    const why = Buffer.isBuffer(reason) ? reason.toString() : String(reason || "");
+    console.log(`socket closed code=${code} reason=${why}`);
+    detachPlayer(ws);
+  });
+});
+
+function handleMessage(ws, data) {
     if (data.length > 2000) return;
     let msg;
     try {
@@ -257,7 +310,7 @@ wss.on("connection", (ws) => {
       const now = Date.now();
       if (ws.lastAimAt && now - ws.lastAimAt < 40) return;
       ws.lastAimAt = now;
-      const other = room.players.find((entry) => entry.ws !== ws);
+      const other = room.players.find((entry) => entry.ws && entry.ws !== ws);
       if (other) send(other.ws, { type: "aim", x: msg.x, y: msg.y, player: player.index });
       return;
     }
@@ -280,23 +333,25 @@ wss.on("connection", (ws) => {
       if (room.again[0] && room.again[1]) begin(room);
       else send(ws, { type: "note", message: "Waiting for the other hunter…" });
     }
-  });
-
-  ws.on("close", (code, reason) => {
-    console.log(`socket closed code=${code} reason=${reason}`);
-    removePlayer(ws);
-  });
-});
+}
 
 setInterval(() => {
   for (const room of rooms.values()) {
     if (!room.match) continue;
-    pump(room);
-    broadcastState(room);
+    try {
+      pump(room);
+      broadcastState(room);
+    } catch (err) {
+      console.error("tick error:", err);
+    }
   }
 }, 100);
 
-server.listen(port, () => {
+setInterval(() => {
+  for (const client of wss.clients) send(client, { type: "keepalive" });
+}, 5000);
+
+server.listen(port, "0.0.0.0", () => {
   const actual = server.address().port;
   console.log(`Duck Shooter at http://localhost:${actual}`);
   for (const ip of lanIps()) console.log(`  on your network: http://${ip}:${actual}`);

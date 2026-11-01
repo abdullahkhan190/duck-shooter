@@ -83,6 +83,35 @@ function testFirstToSeven() {
   assert(late[0].type === "reject", "the win locks the guns");
 }
 
+function testAmmo() {
+  const { match } = flyMatch(4, 0);
+  const t = match.duck.born + 500;
+  assert(match.ammo[0] === core.BULLETS && match.ammo[1] === core.BULLETS, "each hunter starts with a full gun");
+  for (let i = 0; i < core.BULLETS; i++) {
+    const when = t + i * 400;
+    const shot = core.offerShot(match, 0, 8, 8, when, when);
+    assert(shot.some((event) => event.type === "blast"), "a loaded gun fires");
+  }
+  assert(match.ammo[0] === 0, "three shots empty the gun");
+  const dry = core.offerShot(match, 0, 8, 8, t + 2000, t + 2000);
+  assert(dry[0].type === "empty", "there is no fourth shot");
+  const sample = core.sampleDuck(match.duck, t + 2000);
+  core.offerShot(match, 1, sample.x, sample.y, t + 2000, t + 2000);
+  core.update(match, t + 2000);
+  assert(match.scores[1] === 1, "the other hunter can still score");
+}
+
+function testReload() {
+  const { match } = flyMatch(8, 0);
+  const t = match.duck.born + 400;
+  for (let i = 0; i < core.BULLETS; i++) core.offerShot(match, 0, 8, 8, t + i * 400, t + i * 400);
+  core.update(match, match.duck.born + 20000);
+  assert(match.phase === "taunt", "an unhit duck still flies away");
+  core.update(match, match.phaseUntil);
+  core.update(match, match.phaseUntil);
+  assert(match.phase === "fly" && match.ammo[0] === core.BULLETS, "the next duck refills the gun");
+}
+
 function testNames() {
   const match = core.createMatch(["<b>Ada</b>", "   "], 0, { seed: 1 });
   assert(match.names[0] === "bAdab", "markup is stripped");
@@ -95,5 +124,7 @@ testEarlierShotWins();
 testTie();
 testEscapeAndCountdownLock();
 testFirstToSeven();
+testAmmo();
+testReload();
 testNames();
 console.log("core ok");

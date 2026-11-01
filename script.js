@@ -50,6 +50,10 @@ let flashUntil = [0, 0];
 let lastFrame = performance.now();
 let socket = null;
 let socketOnPurpose = false;
+let joinedRoom = "";
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+let linkStatus = "";
 let clockOffset = 0;
 let lastAimSent = 0;
 let localBlastAt = 0;
@@ -131,7 +135,7 @@ const audio = {
   },
 };
 
-document.getElementById("rule").textContent = "First to " + DuckCore.WIN_SCORE + " wins.";
+document.getElementById("rule").textContent = DuckCore.BULLETS + " shots per duck. First to " + DuckCore.WIN_SCORE + " wins.";
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -212,6 +216,10 @@ function closeSocket() {
 }
 
 function quitToMenu() {
+  clearTimeout(reconnectTimer);
+  joinedRoom = "";
+  reconnectAttempts = 0;
+  linkStatus = "";
   closeSocket();
   mode = "menu";
   match = null;
@@ -258,6 +266,7 @@ function openLobby() {
 function showLobbyRoom(msg) {
   hide(joinForm);
   show(roomInfo);
+  joinedRoom = msg.code;
   document.getElementById("room-code-out").textContent = msg.code;
   const hosts = msg.hosts || [];
   const other = hosts.filter((host) => host.indexOf(location.host) === -1);
@@ -288,6 +297,7 @@ function connectAndHello() {
     sendHello();
     return;
   }
+  if (socket && socket.readyState === WebSocket.CONNECTING) return;
   socketOnPurpose = false;
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   let opened = false;
@@ -305,9 +315,17 @@ function connectAndHello() {
     }
     onNet(msg);
   };
-  socket.onclose = () => {
+  socket.onclose = (event) => {
     if (socketOnPurpose) return;
     socket = null;
+    if (joinedRoom && reconnectAttempts < 6) {
+      reconnectAttempts += 1;
+      linkStatus = "Reconnecting…";
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connectAndHello, Math.min(4000, 400 * reconnectAttempts));
+      return;
+    }
+    linkStatus = "";
     net.view = null;
     mode = "lobby";
     endShown = false;
@@ -316,29 +334,38 @@ function connectAndHello() {
     show(joinForm);
     hide(roomInfo);
     lobbyError.textContent = opened
-      ? "Disconnected from the server."
+      ? "Disconnected from the server (" + (event.code || "no code") + ")."
       : "Could not connect. Run npm install and npm start, then open the printed address.";
     syncChrome();
   };
 }
 
 function sendHello() {
+  const room = joinedRoom || document.getElementById("room-code").value.trim().toUpperCase();
   socket.send(JSON.stringify({
     type: "hello",
     name: document.getElementById("online-name").value,
-    room: document.getElementById("room-code").value.trim().toUpperCase(),
+    room: room,
   }));
 }
 
 function onNet(msg) {
   noteServerTime(msg.now);
+  if (msg.type === "keepalive") return;
   if (msg.type === "error") {
+    reconnectAttempts = 99;
+    linkStatus = "";
+    clearTimeout(reconnectTimer);
     lobbyError.textContent = msg.message || "Could not join.";
+    show(lobby);
     show(joinForm);
     hide(roomInfo);
     return;
   }
   if (msg.type === "lobby") {
+    reconnectAttempts = 0;
+    linkStatus = "";
+    if (msg.code) joinedRoom = msg.code;
     if (mode !== "online") {
       mode = "lobby";
       show(lobby);
@@ -357,6 +384,8 @@ function onNet(msg) {
     return;
   }
   if (msg.type === "state") {
+    reconnectAttempts = 0;
+    linkStatus = "";
     net.view = msg;
     mode = "online";
     hide(menu);
@@ -411,12 +440,14 @@ function fireOnline() {
   if (!net.view || net.view.phase !== "fly" || !socket || socket.readyState !== WebSocket.OPEN) return;
   const time = serverNow();
   const seat = net.view.you;
+  if (net.view.ammo && net.view.ammo[seat] <= 0) return;
   if (time < ((net.view.cooldowns && net.view.cooldowns[seat]) || 0)) return;
   audio.ensure();
   audio.shoot();
   addRing(aim.x, aim.y, COLORS[seat] || "#fff");
   localBlastAt = Date.now();
   if (net.view.cooldowns) net.view.cooldowns[seat] = time + DuckCore.SHOT_COOLDOWN;
+  if (net.view.ammo) net.view.ammo[seat] -= 1;
   socket.send(JSON.stringify({ type: "shot", x: aim.x, y: aim.y, t: time }));
 }
 
@@ -847,9 +878,12 @@ function drawHud(view, time) {
   const hot1 = Date.now() < flashUntil[1];
   drawPlate(24, 18, view.names[0], view.scores[0], COLORS[0], false, hot0, view.you === 0);
   drawPlate(WIDTH - 24, 18, view.names[1], view.scores[1], COLORS[1], true, hot1, view.you === 1);
+  drawShells(46, 98, ammoLeft(view, 0), COLORS[0], false);
+  drawShells(WIDTH - 46, 98, ammoLeft(view, 1), COLORS[1], true);
   ctx.fillStyle = "rgba(16, 14, 12, 0.9)";
   roundRect(WIDTH / 2 - 86, 14, 172, 62, 14);
   ctx.fill();
+  if (linkStatus) paintText(linkStatus, WIDTH / 2, 112, "#ffe08a", 28, "center");
   paintText("PASS " + view.round, WIDTH / 2, 34, "#fffaf0", 26, "center");
   paintText("FIRST TO " + DuckCore.WIN_SCORE, WIDTH / 2, 60, "#ffe08a", 15, "center");
 
@@ -878,6 +912,20 @@ function drawHud(view, time) {
   ctx.textAlign = "center";
   ctx.fillStyle = "rgba(255, 250, 240, 0.78)";
   ctx.fillText(audio.muted ? "M sound off  ·  Esc quits" : "M mute  ·  Esc quits", WIDTH / 2, 704);
+}
+
+function ammoLeft(view, player) {
+  if (!view.ammo) return DuckCore.BULLETS;
+  return view.ammo[player];
+}
+
+function drawShells(anchorX, y, count, color, alignRight) {
+  for (let i = 0; i < DuckCore.BULLETS; i++) {
+    const x = alignRight ? anchorX - i * 16 : anchorX + i * 16;
+    ctx.fillStyle = i < count ? color : "rgba(255, 250, 240, 0.28)";
+    roundRect(x, y, 10, 18, 3);
+    ctx.fill();
+  }
 }
 
 function drawPlate(anchorX, y, name, score, color, alignRight, hot, you) {
@@ -985,8 +1033,8 @@ function render() {
   }
 
   if (mode === "local" && match) {
-    drawCrosshair(aim.x, aim.y, COLORS[0], match.names[0], "", cooling(match, 0, time));
-    const keyboardHint = p2Moved || match.phase === "countdown" ? "" : "WASD or arrows";
+    drawCrosshair(aim.x, aim.y, COLORS[0], match.names[0], ammoLeft(match, 0) ? "" : "Empty", cooling(match, 0, time));
+    const keyboardHint = ammoLeft(match, 1) === 0 ? "Empty" : p2Moved || match.phase === "countdown" ? "" : "WASD or arrows";
     drawCrosshair(p2.x, p2.y, COLORS[1], match.names[1], keyboardHint, cooling(match, 1, time));
     drawHud(match, time);
     announce(match, time);
@@ -996,7 +1044,8 @@ function render() {
       const other = net.opponent.player;
       drawCrosshair(net.opponent.x, net.opponent.y, COLORS[other] || "#fff", net.view.names[other] || "", "", false);
     }
-    drawCrosshair(aim.x, aim.y, COLORS[seat] || "#fff", net.view.names[seat] || "You", "", cooling(net.view, seat, time));
+    const emptyHint = ammoLeft(net.view, seat) === 0 ? "Empty" : "";
+    drawCrosshair(aim.x, aim.y, COLORS[seat] || "#fff", net.view.names[seat] || "You", emptyHint, cooling(net.view, seat, time));
     drawHud(net.view, time);
     announce(net.view, time);
   }

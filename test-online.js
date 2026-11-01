@@ -75,7 +75,19 @@ async function main() {
     assert(scored.scores[1] === 0, "only the first hunter scores");
     const seenByBo = await waitFor(bo.bag, (msg) => msg.type === "state" && msg.scores && msg.scores[0] === 1, 2000);
     assert(seenByBo.names[0] === "Ada" && seenByBo.names[1] === "Bo", "both screens share the match");
+
     ada.ws.close();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const adaAgain = await connect(url);
+    adaAgain.ws.send(JSON.stringify({ type: "hello", name: "Ada", room: lobby.code }));
+    const resumed = await waitFor(
+      adaAgain.bag,
+      (msg) => msg.type === "state" && msg.you === 0 && msg.scores && msg.scores[0] === 1,
+      2000
+    );
+    assert(resumed.scores[0] === 1, "rejoining keeps the point");
+    assert(!bo.bag.some((msg) => msg.type === "left"), "a short drop does not end the match");
+    adaAgain.ws.close();
     bo.ws.close();
     console.log("online ok");
   } finally {

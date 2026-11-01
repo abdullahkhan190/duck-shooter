@@ -10,6 +10,7 @@
   const HEIGHT = 720;
   const WIN_SCORE = 7;
   const SHOT_COOLDOWN = 340;
+  const BULLETS = 3;
   const MAX_REWIND = 170;
   const COUNTDOWN_MS = 2400;
   const FALL_MS = 900;
@@ -63,6 +64,7 @@
       best: null,
       resolveAt: 0,
       cooldowns: [0, 0],
+      ammo: [BULLETS, BULLETS],
       lastQuack: now,
       lagGrace: options.lagGrace || 0,
       rng: mulberry32(options.seed != null ? options.seed : now >>> 0),
@@ -127,6 +129,7 @@
     match.phase = "fly";
     match.phaseStarted = now;
     match.phaseUntil = Infinity;
+    match.ammo = [BULLETS, BULLETS];
   }
 
   function startTaunt(match, now, x, banner, events, type) {
@@ -230,6 +233,10 @@
       events.push({ type: "reject" });
       return events;
     }
+    if (!match.ammo || match.ammo[player] <= 0) {
+      events.push({ type: "empty" });
+      return events;
+    }
     if (now < match.cooldowns[player]) {
       events.push({ type: "cooldown" });
       return events;
@@ -243,6 +250,7 @@
     const aimX = clamp(x, 0, WIDTH);
     const aimY = clamp(y, 0, HEIGHT);
     match.cooldowns[player] = now + SHOT_COOLDOWN;
+    match.ammo[player] -= 1;
 
     const sample = sampleDuck(match.duck, when);
     const hit = hits(sample, aimX, aimY);
@@ -278,6 +286,7 @@
     HEIGHT: HEIGHT,
     WIN_SCORE: WIN_SCORE,
     SHOT_COOLDOWN: SHOT_COOLDOWN,
+    BULLETS: BULLETS,
     HIT_RX: HIT_RX,
     HIT_RY: HIT_RY,
     cleanName: cleanName,
