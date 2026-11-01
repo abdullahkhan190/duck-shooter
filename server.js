@@ -61,7 +61,7 @@ function broadcast(room, obj) {
   for (const player of room.players) send(player.ws, obj);
 }
 
-function snapshot(match, now, you) {
+function snapshot(match, now, you, duckSpeed) {
   return {
     type: "state",
     now: now,
@@ -79,13 +79,14 @@ function snapshot(match, now, you) {
     prop: match.prop,
     cooldowns: match.cooldowns.slice(),
     ammo: match.ammo.slice(),
+    duckSpeed: DuckCore.duckSpeedOf(duckSpeed != null ? duckSpeed : match.duckSpeed),
   };
 }
 
 function broadcastState(room) {
   if (!room.match) return;
   const now = Date.now();
-  for (const player of room.players) send(player.ws, snapshot(room.match, now, player.index));
+  for (const player of room.players) send(player.ws, snapshot(room.match, now, player.index, room.duckSpeed));
 }
 
 function pump(room) {
@@ -104,7 +105,7 @@ function begin(room) {
   room.match = DuckCore.createMatch(
     room.players.map((player) => player.name),
     Date.now(),
-    { lagGrace: 120, seed: Math.floor(Math.random() * 0x7fffffff) }
+    { lagGrace: 120, seed: Math.floor(Math.random() * 0x7fffffff), duckSpeed: room.duckSpeed }
   );
   room.again = [false, false];
   broadcastState(room);
@@ -119,6 +120,7 @@ function lobbyPayload(room, you) {
     you: you,
     players: room.players.map((player) => ({ name: player.name, index: player.index })),
     hosts: hosts,
+    duckSpeed: DuckCore.duckSpeedOf(room.duckSpeed),
   };
 }
 
@@ -183,7 +185,7 @@ function seatPlayer(ws, msg) {
       return;
     }
     const code = uniqueCode();
-    room = { code: code, players: [], match: null, again: [false, false] };
+    room = { code: code, players: [], match: null, again: [false, false], duckSpeed: DuckCore.duckSpeedOf(msg.duckSpeed) };
     rooms.set(code, room);
   } else {
     const code = cleanCode(requested);
@@ -219,7 +221,7 @@ function seatPlayer(ws, msg) {
   ws.room = room;
   console.log(`${player.name} joined ${room.code} (${room.players.length}/2)`);
   if (room.match) {
-    send(ws, snapshot(room.match, Date.now(), player.index));
+    send(ws, snapshot(room.match, Date.now(), player.index, room.duckSpeed));
     return;
   }
   sendLobby(room);
@@ -324,6 +326,15 @@ function handleMessage(ws, data) {
         if (event.type === "blast") broadcast(room, { type: "fx", fx: event });
       }
       pump(room);
+      return;
+    }
+
+    if (msg.type === "speed") {
+      if (player.index !== 0) return;
+      if (room.match && room.match.phase !== "win") return;
+      room.duckSpeed = DuckCore.duckSpeedOf(msg.speed);
+      if (room.match) broadcastState(room);
+      else sendLobby(room);
       return;
     }
 

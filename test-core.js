@@ -118,6 +118,19 @@ function testNames() {
   assert(match.names[1] === "Hunter 2", "blank names get a seat name");
 }
 
+function testDuckSpeed() {
+  const slow = core.createMatch(["A", "B"], 0, { seed: 4, duckSpeed: 140 });
+  const fast = core.createMatch(["A", "B"], 0, { seed: 4, duckSpeed: 640 });
+  core.update(slow, slow.phaseUntil);
+  core.update(fast, fast.phaseUntil);
+  const at = slow.duck.born + 1000;
+  const slowX = Math.abs(core.sampleDuck(slow.duck, at).x - slow.duck.x0);
+  const fastX = Math.abs(core.sampleDuck(fast.duck, at).x - fast.duck.x0);
+  assert(fast.duckSpeed === 640 && slow.duckSpeed === 140, "the chosen speed is kept");
+  assert(fastX > slowX * 3, "a fast duck covers much more ground");
+  assert(core.duckSpeedOf(9999) === core.DUCK_SPEED_MAX, "speed stays inside the slider");
+}
+
 testHitScores();
 testMissAndCooldown();
 testEarlierShotWins();
@@ -127,4 +140,5 @@ testFirstToSeven();
 testAmmo();
 testReload();
 testNames();
+testDuckSpeed();
 console.log("core ok");

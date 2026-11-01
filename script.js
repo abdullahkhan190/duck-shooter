@@ -16,9 +16,38 @@ const endScore = document.getElementById("end-score");
 const endNote = document.getElementById("end-note");
 const againBtn = document.getElementById("btn-again");
 const muteBtn = document.getElementById("btn-mute");
+const speedLocal = document.getElementById("speed-local");
+const speedHost = document.getElementById("speed-host");
+const speedRoom = document.getElementById("speed-room");
+const speedAgain = document.getElementById("speed-again");
+let onlineDuckSpeed = DuckCore.DUCK_SPEED_DEFAULT;
+
+function speedWord(value) {
+  if (value < 220) return "Slow";
+  if (value < 360) return "Steady";
+  if (value < 500) return "Quick";
+  return "Swift";
+}
+
+function paintSpeed(input, value) {
+  const speed = DuckCore.duckSpeedOf(value);
+  if (document.activeElement !== input) input.value = String(speed);
+  const output = document.getElementById(input.id + "-out");
+  if (output) output.textContent = speedWord(Number(input.value));
+  return DuckCore.duckSpeedOf(input.value);
+}
+
+function rememberOnlineSpeed(value) {
+  onlineDuckSpeed = DuckCore.duckSpeedOf(value);
+  paintSpeed(speedHost, onlineDuckSpeed);
+  paintSpeed(speedRoom, onlineDuckSpeed);
+  paintSpeed(speedAgain, onlineDuckSpeed);
+}
 
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const zoomControls = document.getElementById("zoom-controls");
+const touchHud = document.getElementById("touch-hud");
+const joystick = document.getElementById("joystick");
+const joystickKnob = document.getElementById("joystick-knob");
 
 function usesTouchControls() {
   return window.matchMedia("(any-pointer: coarse), (max-width: 820px)").matches;
@@ -66,6 +95,8 @@ let zoomKeysTarget = 1;
 const touchPoints = new Map();
 let pinch = null;
 let armedTouchShot = false;
+const stick = { id: null, x: 0, y: 0, active: false };
+const STICK_LIMIT = 42;
 let clockOffset = 0;
 let lastAimSent = 0;
 let localBlastAt = 0;
@@ -200,7 +231,8 @@ function hide(el) {
 function syncChrome() {
   const playing = mode === "local" || mode === "online";
   canvas.classList.toggle("aim", playing);
-  zoomControls.classList.toggle("hidden", !playing || endShown);
+  touchHud.classList.toggle("hidden", !playing || endShown);
+  if (!playing || endShown) releaseStick();
 }
 
 function resetZoom() {
@@ -288,7 +320,7 @@ function startLocal() {
   match = DuckCore.createMatch(
     [document.getElementById("name1").value, document.getElementById("name2").value],
     Date.now(),
-    { lagGrace: 0, seed: seed }
+    { lagGrace: 0, seed: seed, duckSpeed: DuckCore.duckSpeedOf(speedLocal.value) }
   );
   resetPads();
   resetZoom();
@@ -334,6 +366,12 @@ function showLobbyRoom(msg) {
   }
   document.getElementById("wait").textContent =
     msg.players.length < 2 ? "Waiting for the other hunter…" : "Both hunters are in the blind.";
+  const host = msg.you === 0;
+  speedRoom.disabled = !host;
+  document.getElementById("speed-room-note").textContent = host
+    ? "Set this before the other hunter joins."
+    : "The host sets the duck speed.";
+  rememberOnlineSpeed(msg.duckSpeed);
 }
 
 function connectAndHello() {
@@ -391,11 +429,13 @@ function connectAndHello() {
 
 function sendHello() {
   const room = joinedRoom || document.getElementById("room-code").value.trim().toUpperCase();
-  socket.send(JSON.stringify({
+  const payload = {
     type: "hello",
     name: document.getElementById("online-name").value,
     room: room,
-  }));
+  };
+  if (!room) payload.duckSpeed = DuckCore.duckSpeedOf(speedHost.value);
+  socket.send(JSON.stringify(payload));
 }
 
 function onNet(msg) {
@@ -436,6 +476,7 @@ function onNet(msg) {
     reconnectAttempts = 0;
     linkStatus = "";
     net.view = msg;
+    if (typeof msg.duckSpeed === "number") rememberOnlineSpeed(msg.duckSpeed);
     mode = "online";
     hide(menu);
     hide(lobby);
@@ -603,8 +644,8 @@ function makeDemo(now) {
     dir: dir,
     speed: 170,
     x0: dir === 1 ? -120 : WIDTH + 120,
-    baseY: 180 + Math.random() * 70,
-    amp: 26,
+    baseY: 240 + Math.random() * 40,
+    amp: 90,
     freq: 1.2,
     phase: Math.random() * 6,
     falling: false,
@@ -950,8 +991,8 @@ function drawHud(view, time) {
       ctx.strokeStyle = "rgba(12, 10, 8, 0.75)";
       ctx.lineWidth = 4;
       const hint = mode === "local"
-        ? (usesTouchControls() ? "Tap to shoot    ·    arrows or WASD, then Space" : "Mouse clicks    ·    arrows or WASD, then Space")
-        : (usesTouchControls() ? "Tap the duck before the other hunter" : "Click the duck before the other hunter");
+        ? (usesTouchControls() ? "Stick or tap to shoot    ·    arrows or WASD, then Space" : "Mouse clicks    ·    arrows or WASD, then Space")
+        : (usesTouchControls() ? "Stick or tap the duck before the other hunter" : "Click the duck before the other hunter");
       ctx.strokeText(hint, WIDTH / 2, 248);
       ctx.fillText(hint, WIDTH / 2, 248);
     }
@@ -961,7 +1002,7 @@ function drawHud(view, time) {
   ctx.textAlign = "center";
   ctx.fillStyle = "rgba(255, 250, 240, 0.78)";
   const scopeHint = usesTouchControls()
-    ? (mode === "local" ? "Pinch or +/− zooms  ·  Q/E keyboard scope" : "Pinch or +/− zooms")
+    ? (mode === "local" ? "Stick aims  ·  Fire shoots  ·  Q/E keyboard scope" : "Stick aims  ·  Fire shoots  ·  +/− zooms")
     : (mode === "local" ? "Wheel or right-click zooms  ·  Q/E keyboard scope" : "Wheel or right-click zooms");
   ctx.fillText((audio.muted ? "Sound off  ·  " : "") + scopeHint + "  ·  Esc quits", WIDTH / 2, 704);
 }
@@ -1184,6 +1225,8 @@ function syncEnd() {
       endNote.textContent = mode === "online" ? "Both players press Fly again for a rematch." : "Same marsh, new ducks.";
       againBtn.textContent = "Fly again";
       show(endCard);
+      speedAgain.disabled = mode === "online" && !(net.view && net.view.you === 0);
+      paintSpeed(speedAgain, mode === "local" && match ? match.duckSpeed : onlineDuckSpeed);
       syncChrome();
     }
   } else if (endShown) {
@@ -1197,6 +1240,7 @@ function frame(nowMs) {
   const dt = Math.min(0.05, (nowMs - lastFrame) / 1000);
   lastFrame = nowMs;
   const clock = Date.now();
+  if (stick.active && (mode === "local" || mode === "online")) moveAimFromStick(dt);
   if (mode === "local" && match) {
     if (match.phase !== "win") moveP2(dt);
     const events = DuckCore.update(match, clock);
@@ -1214,6 +1258,25 @@ function frame(nowMs) {
 }
 
 document.getElementById("btn-local").addEventListener("click", startLocal);
+document.getElementById("room-code").addEventListener("input", () => {
+  const hosting = document.getElementById("room-code").value.trim() === "";
+  document.getElementById("speed-host-field").classList.toggle("hidden", !hosting);
+});
+speedLocal.addEventListener("input", () => paintSpeed(speedLocal, speedLocal.value));
+speedHost.addEventListener("input", () => paintSpeed(speedHost, speedHost.value));
+speedRoom.addEventListener("input", () => {
+  const speed = paintSpeed(speedRoom, speedRoom.value);
+  if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "speed", speed: speed }));
+});
+speedAgain.addEventListener("input", () => {
+  const speed = paintSpeed(speedAgain, speedAgain.value);
+  if (mode === "local") paintSpeed(speedLocal, speed);
+  else if (mode === "online" && net.view && net.view.you === 0 && socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "speed", speed: speed }));
+  }
+});
+paintSpeed(speedLocal, speedLocal.value);
+paintSpeed(speedHost, speedHost.value);
 document.getElementById("btn-online").addEventListener("click", openLobby);
 document.getElementById("btn-back").addEventListener("click", quitToMenu);
 document.getElementById("btn-lobby-back").addEventListener("click", quitToMenu);
@@ -1242,7 +1305,9 @@ againBtn.addEventListener("click", () => {
     match = DuckCore.createMatch(match.names.slice(), Date.now(), {
       lagGrace: 0,
       seed: Math.floor(Math.random() * 0x7fffffff),
+      duckSpeed: DuckCore.duckSpeedOf(speedAgain.value),
     });
+    paintSpeed(speedLocal, match.duckSpeed);
     resetPads();
     endShown = false;
     hide(endCard);
@@ -1331,6 +1396,65 @@ canvas.addEventListener("pointercancel", (event) => {
   if (touchPoints.size < 2) pinch = null;
 });
 
+function placeKnob(x, y) {
+  joystickKnob.style.transform = "translate(calc(-50% + " + x + "px), calc(-50% + " + y + "px))";
+}
+
+function releaseStick() {
+  stick.id = null;
+  stick.x = 0;
+  stick.y = 0;
+  stick.active = false;
+  placeKnob(0, 0);
+}
+
+function moveAimFromStick(dt) {
+  const mag = Math.hypot(stick.x, stick.y);
+  if (mag < 0.12) return;
+  const speed = 1100;
+  aim.x = clamp(aim.x + stick.x * speed * dt, 0, WIDTH);
+  aim.y = clamp(aim.y + stick.y * speed * dt, 0, HEIGHT);
+}
+
+function followStick(event) {
+  const rect = joystick.getBoundingClientRect();
+  let dx = event.clientX - (rect.left + rect.width / 2);
+  let dy = event.clientY - (rect.top + rect.height / 2);
+  const mag = Math.hypot(dx, dy) || 1;
+  const scale = Math.min(1, STICK_LIMIT / mag);
+  dx *= scale;
+  dy *= scale;
+  stick.x = dx / STICK_LIMIT;
+  stick.y = dy / STICK_LIMIT;
+  placeKnob(dx, dy);
+}
+
+joystick.addEventListener("pointerdown", (event) => {
+  if (mode !== "local" && mode !== "online") return;
+  event.preventDefault();
+  event.stopPropagation();
+  try { joystick.setPointerCapture(event.pointerId); } catch (err) { /* synthetic events have no pointer to capture */ }
+  stick.id = event.pointerId;
+  stick.active = true;
+  followStick(event);
+});
+joystick.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== stick.id) return;
+  followStick(event);
+});
+function endStick(event) {
+  if (event.pointerId !== stick.id) return;
+  releaseStick();
+}
+joystick.addEventListener("pointerup", endStick);
+joystick.addEventListener("pointercancel", endStick);
+
+document.getElementById("btn-fire").addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  if (mode !== "local" && mode !== "online") return;
+  shootMouseHunter();
+});
+
 function pressZoom(direction) {
   return (event) => {
     event.preventDefault();
@@ -1383,6 +1507,7 @@ window.addEventListener("keyup", (event) => {
 });
 window.addEventListener("blur", () => {
   for (const key of Object.keys(keys)) keys[key] = false;
+  releaseStick();
 });
 window.addEventListener("resize", fit);
 

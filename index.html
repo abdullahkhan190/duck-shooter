@@ -14,9 +14,17 @@
   <div id="app">
     <canvas id="game" width="1280" height="720" aria-label="Duck Shooter game"></canvas>
     <p id="status" class="sr-only" aria-live="polite"></p>
-    <div id="zoom-controls" class="hidden">
-      <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
-      <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+    <div id="touch-hud" class="hidden">
+      <div id="joystick" aria-label="Aim joystick">
+        <div id="joystick-knob"></div>
+      </div>
+      <div id="touch-actions">
+        <div id="zoom-controls">
+          <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+          <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+        </div>
+        <button id="btn-fire" type="button">Fire</button>
+      </div>
     </div>
     <div id="ui">
       <section id="menu" class="card">
@@ -33,6 +41,10 @@
             <input id="name2" maxlength="12" autocomplete="off" value="Bo">
           </label>
         </div>
+        <div class="speed">
+          <div class="speed-head"><span>Duck speed</span><strong id="speed-local-out">Steady</strong></div>
+          <input id="speed-local" type="range" min="140" max="640" step="20" value="280" aria-label="Duck speed">
+        </div>
         <div class="actions">
           <button id="btn-local" class="primary" type="button">Play on this screen</button>
           <button id="btn-online" class="secondary" type="button">Play online</button>
@@ -41,6 +53,7 @@
           <li>Player 1 aims with the mouse and clicks to shoot.</li>
           <li>Player 2 aims with the arrow keys or WASD, and shoots with Space.</li>
           <li>Each hunter gets 3 shots per duck. The earlier hit wins.</li>
+          <li>On a phone, the left joystick aims and Fire shoots. Tapping the duck still shoots.</li>
           <li>Wheel, pinch, or the + and − buttons zoom a scope. Right-click toggles it. The keyboard hunter uses Q and E.</li>
           <li>Esc leaves the marsh. M mutes the guns.</li>
         </ul>
@@ -58,6 +71,10 @@
           <label>Room code
             <input id="room-code" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Blank hosts a new room">
           </label>
+          <div class="speed" id="speed-host-field">
+            <div class="speed-head"><span>Duck speed</span><strong id="speed-host-out">Steady</strong></div>
+            <input id="speed-host" type="range" min="140" max="640" step="20" value="280" aria-label="Duck speed">
+          </div>
           <div class="actions">
             <button id="btn-join" class="primary" type="submit">Join room</button>
             <button id="btn-back" class="secondary" type="button">Back</button>
@@ -69,6 +86,11 @@
           <p id="share-url"></p>
           <ul id="player-list"></ul>
           <p id="wait">Waiting for the other hunter…</p>
+          <div class="speed" id="speed-room-field">
+            <div class="speed-head"><span>Duck speed</span><strong id="speed-room-out">Steady</strong></div>
+            <input id="speed-room" type="range" min="140" max="640" step="20" value="280" aria-label="Duck speed">
+            <p id="speed-room-note" class="speed-note"></p>
+          </div>
           <button id="btn-lobby-back" class="secondary" type="button">Back</button>
         </div>
         <p id="lobby-error" class="error"></p>
@@ -79,6 +101,10 @@
         <h2 id="end-title"></h2>
         <p id="end-score"></p>
         <p id="end-note"></p>
+        <div class="speed" id="speed-again-field">
+          <div class="speed-head"><span>Next ducks</span><strong id="speed-again-out">Steady</strong></div>
+          <input id="speed-again" type="range" min="140" max="640" step="20" value="280" aria-label="Duck speed for the next match">
+        </div>
         <div class="actions">
           <button id="btn-again" class="primary" type="button">Fly again</button>
           <button id="btn-menu" class="secondary" type="button">Menu</button>

@@ -19,6 +19,16 @@
   const GAP_MS = 450;
   const HIT_RX = 62;
   const HIT_RY = 36;
+  const DUCK_SPEED_MIN = 140;
+  const DUCK_SPEED_MAX = 640;
+  const DUCK_SPEED_DEFAULT = 280;
+
+  function duckSpeedOf(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return DUCK_SPEED_DEFAULT;
+    const stepped = Math.round(n / 20) * 20;
+    return clamp(stepped, DUCK_SPEED_MIN, DUCK_SPEED_MAX);
+  }
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -68,6 +78,7 @@
       lastQuack: now,
       lagGrace: options.lagGrace || 0,
       rng: mulberry32(options.seed != null ? options.seed : now >>> 0),
+      duckSpeed: duckSpeedOf(options.duckSpeed),
     };
   }
 
@@ -108,14 +119,17 @@
 
   function spawnDuck(match, now) {
     const dir = match.rng() < 0.5 ? 1 : -1;
-    const speed = Math.min(560, 230 + (match.round - 1) * 16 + match.rng() * 50);
+    const speed = (match.duckSpeed || DUCK_SPEED_DEFAULT) * (0.92 + match.rng() * 0.16);
+    const amp = 64 + match.rng() * 80;
+    const low = 120 + amp;
+    const high = 455 - amp;
     match.duck = {
       born: now,
       dir: dir,
       speed: speed,
       x0: dir === 1 ? -90 : WIDTH + 90,
-      baseY: 165 + match.rng() * 175,
-      amp: 16 + match.rng() * 28,
+      baseY: low + match.rng() * Math.max(8, high - low),
+      amp: amp,
       freq: 1.15 + match.rng() * 1.35,
       phase: match.rng() * Math.PI * 2,
       falling: false,
@@ -287,6 +301,10 @@
     WIN_SCORE: WIN_SCORE,
     SHOT_COOLDOWN: SHOT_COOLDOWN,
     BULLETS: BULLETS,
+    DUCK_SPEED_MIN: DUCK_SPEED_MIN,
+    DUCK_SPEED_MAX: DUCK_SPEED_MAX,
+    DUCK_SPEED_DEFAULT: DUCK_SPEED_DEFAULT,
+    duckSpeedOf: duckSpeedOf,
     HIT_RX: HIT_RX,
     HIT_RY: HIT_RY,
     cleanName: cleanName,
