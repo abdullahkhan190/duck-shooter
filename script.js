@@ -18,6 +18,11 @@ const againBtn = document.getElementById("btn-again");
 const muteBtn = document.getElementById("btn-mute");
 
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const zoomControls = document.getElementById("zoom-controls");
+
+function usesTouchControls() {
+  return window.matchMedia("(any-pointer: coarse), (max-width: 820px)").matches;
+}
 const showHitbox = new URLSearchParams(location.search).has("hitbox");
 
 const aim = { x: WIDTH * 0.38, y: HEIGHT * 0.4 };
@@ -54,6 +59,13 @@ let joinedRoom = "";
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 let linkStatus = "";
+let zoomMouse = 1;
+let zoomMouseTarget = 1;
+let zoomKeys = 1;
+let zoomKeysTarget = 1;
+const touchPoints = new Map();
+let pinch = null;
+let armedTouchShot = false;
 let clockOffset = 0;
 let lastAimSent = 0;
 let localBlastAt = 0;
@@ -186,7 +198,42 @@ function hide(el) {
 }
 
 function syncChrome() {
-  canvas.classList.toggle("aim", mode === "local" || mode === "online");
+  const playing = mode === "local" || mode === "online";
+  canvas.classList.toggle("aim", playing);
+  zoomControls.classList.toggle("hidden", !playing || endShown);
+}
+
+function resetZoom() {
+  zoomMouse = 1;
+  zoomMouseTarget = 1;
+  zoomKeys = 1;
+  zoomKeysTarget = 1;
+}
+
+function stepZoom(which, direction) {
+  const levels = [1, 1.8, 2.6, 4];
+  const current = which === "keys" ? zoomKeysTarget : zoomMouseTarget;
+  let index = 0;
+  for (let i = 0; i < levels.length; i++) if (Math.abs(current - levels[i]) < 0.2 || current > levels[i]) index = i;
+  const next = levels[clamp(index + direction, 0, levels.length - 1)];
+  if (which === "keys") zoomKeysTarget = next;
+  else zoomMouseTarget = next;
+}
+
+function setMouseZoom(value) {
+  zoomMouseTarget = clamp(value, 1, 4);
+}
+
+function toggleZoom(which) {
+  const current = which === "keys" ? zoomKeysTarget : zoomMouseTarget;
+  if (which === "keys") zoomKeysTarget = current > 1.05 ? 1 : 2.6;
+  else zoomMouseTarget = current > 1.05 ? 1 : 2.6;
+}
+
+function easeZoom(dt) {
+  const follow = Math.min(1, dt * 12);
+  zoomMouse += (zoomMouseTarget - zoomMouse) * follow;
+  zoomKeys += (zoomKeysTarget - zoomKeys) * follow;
 }
 
 function resetPads() {
@@ -220,6 +267,7 @@ function quitToMenu() {
   joinedRoom = "";
   reconnectAttempts = 0;
   linkStatus = "";
+  resetZoom();
   closeSocket();
   mode = "menu";
   match = null;
@@ -243,6 +291,7 @@ function startLocal() {
     { lagGrace: 0, seed: seed }
   );
   resetPads();
+  resetZoom();
   mode = "local";
   endShown = false;
   hide(menu);
@@ -901,8 +950,8 @@ function drawHud(view, time) {
       ctx.strokeStyle = "rgba(12, 10, 8, 0.75)";
       ctx.lineWidth = 4;
       const hint = mode === "local"
-        ? "Mouse clicks    ·    arrows or WASD, then Space"
-        : "Click the duck before the other hunter";
+        ? (usesTouchControls() ? "Tap to shoot    ·    arrows or WASD, then Space" : "Mouse clicks    ·    arrows or WASD, then Space")
+        : (usesTouchControls() ? "Tap the duck before the other hunter" : "Click the duck before the other hunter");
       ctx.strokeText(hint, WIDTH / 2, 248);
       ctx.fillText(hint, WIDTH / 2, 248);
     }
@@ -911,7 +960,10 @@ function drawHud(view, time) {
   ctx.font = '700 15px Nunito, "Segoe UI", sans-serif';
   ctx.textAlign = "center";
   ctx.fillStyle = "rgba(255, 250, 240, 0.78)";
-  ctx.fillText(audio.muted ? "M sound off  ·  Esc quits" : "M mute  ·  Esc quits", WIDTH / 2, 704);
+  const scopeHint = usesTouchControls()
+    ? (mode === "local" ? "Pinch or +/− zooms  ·  Q/E keyboard scope" : "Pinch or +/− zooms")
+    : (mode === "local" ? "Wheel or right-click zooms  ·  Q/E keyboard scope" : "Wheel or right-click zooms");
+  ctx.fillText((audio.muted ? "Sound off  ·  " : "") + scopeHint + "  ·  Esc quits", WIDTH / 2, 704);
 }
 
 function ammoLeft(view, player) {
@@ -977,15 +1029,7 @@ function cooling(view, player, time) {
   return !!(view && view.cooldowns && time < view.cooldowns[player]);
 }
 
-function render() {
-  const now = Date.now();
-  const view = currentView();
-  const time = view ? viewTime(view) : now;
-  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-  ctx.clearRect(0, 0, WIDTH, HEIGHT);
-  ctx.save();
-  if (shake > 0.02) ctx.translate((Math.random() - 0.5) * shake * 12, (Math.random() - 0.5) * shake * 12);
-
+function drawScene(now, view, time) {
   drawMarsh(now);
   let sample = null;
   if (view && view.duck) sample = DuckCore.sampleDuck(view.duck, time);
@@ -1031,6 +1075,71 @@ function render() {
     paintText(item.text, item.x, item.y, item.color, 28, "center");
     ctx.globalAlpha = 1;
   }
+}
+
+function drawScope(x, y, zoom, color, now, view, time) {
+  if (zoom < 1.08) return;
+  const radius = 132;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.translate(x, y);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-x, -y);
+  drawScene(now, view, time);
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = "#120e0b";
+  ctx.lineWidth = 10;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, radius - 7, 0, Math.PI * 2);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,250,240,0.9)";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+    const inner = i % 2 === 0 ? radius - 26 : radius - 16;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(angle) * inner, y + Math.sin(angle) * inner);
+    ctx.lineTo(x + Math.cos(angle) * (radius - 10), y + Math.sin(angle) * (radius - 10));
+    ctx.stroke();
+  }
+  const label = (Math.round(zoom * 10) / 10).toFixed(1).replace(".0", "") + "x";
+  ctx.font = '800 16px Nunito, "Segoe UI", sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "rgba(0,0,0,0.8)";
+  ctx.strokeText(label, x, y + radius + 16);
+  ctx.fillStyle = "#fffaf0";
+  ctx.fillText(label, x, y + radius + 16);
+  ctx.restore();
+}
+
+function render() {
+  const now = Date.now();
+  const view = currentView();
+  const time = view ? viewTime(view) : now;
+  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+  ctx.save();
+  if (shake > 0.02) ctx.translate((Math.random() - 0.5) * shake * 12, (Math.random() - 0.5) * shake * 12);
+
+  drawScene(now, view, time);
+
+  if (mode === "local" && match) {
+    drawScope(aim.x, aim.y, zoomMouse, COLORS[0], now, view, time);
+    drawScope(p2.x, p2.y, zoomKeys, COLORS[1], now, view, time);
+  } else if (mode === "online" && net.view) {
+    drawScope(aim.x, aim.y, zoomMouse, COLORS[net.view.you] || "#fffaf0", now, view, time);
+  }
 
   if (mode === "local" && match) {
     drawCrosshair(aim.x, aim.y, COLORS[0], match.names[0], ammoLeft(match, 0) ? "" : "Empty", cooling(match, 0, time));
@@ -1067,7 +1176,7 @@ function announce(view, time) {
 
 function syncEnd() {
   const view = currentView();
-  if (view && view.phase === "win") {
+    if (view && view.phase === "win") {
     if (!endShown) {
       endShown = true;
       endTitle.textContent = view.names[view.winner] + " wins";
@@ -1075,10 +1184,12 @@ function syncEnd() {
       endNote.textContent = mode === "online" ? "Both players press Fly again for a rematch." : "Same marsh, new ducks.";
       againBtn.textContent = "Fly again";
       show(endCard);
+      syncChrome();
     }
   } else if (endShown) {
     endShown = false;
     hide(endCard);
+    syncChrome();
   }
 }
 
@@ -1096,6 +1207,7 @@ function frame(nowMs) {
     tendDemo(clock);
   }
   updateFx(dt);
+  easeZoom(dt);
   render();
   syncEnd();
   requestAnimationFrame(frame);
@@ -1134,6 +1246,7 @@ againBtn.addEventListener("click", () => {
     resetPads();
     endShown = false;
     hide(endCard);
+    syncChrome();
     return;
   }
   if (mode === "online" && socket && socket.readyState === WebSocket.OPEN) {
@@ -1143,13 +1256,95 @@ againBtn.addEventListener("click", () => {
   }
 });
 
-canvas.addEventListener("pointermove", aimFromEvent);
-canvas.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0) return;
+function rememberTouch(event) {
+  touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY });
+}
+
+function pinchSpan() {
+  const pts = [...touchPoints.values()];
+  if (pts.length < 2) return 0;
+  return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+}
+
+function aimBetweenFingers() {
+  const pts = [...touchPoints.values()];
+  if (pts.length < 2) return;
+  aimFromEvent({ clientX: (pts[0].x + pts[1].x) / 2, clientY: (pts[0].y + pts[1].y) / 2 });
+}
+
+function applyPinch() {
+  const span = pinchSpan();
+  if (!pinch || !span) return;
+  setMouseZoom(pinch.zoom * (span / pinch.distance));
+  aimBetweenFingers();
+}
+
+canvas.addEventListener("pointermove", (event) => {
+  if (touchPoints.has(event.pointerId)) rememberTouch(event);
+  if (pinch) {
+    applyPinch();
+    return;
+  }
   aimFromEvent(event);
+});
+function shootMouseHunter() {
   if (mode === "local") fire(0);
   else if (mode === "online") fireOnline();
+}
+
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.pointerType === "touch" && (mode === "local" || mode === "online")) {
+    rememberTouch(event);
+    if (touchPoints.size >= 2) {
+      event.preventDefault();
+      armedTouchShot = false;
+      pinch = { distance: pinchSpan(), zoom: zoomMouseTarget };
+      applyPinch();
+      return;
+    }
+    aimFromEvent(event);
+    armedTouchShot = true;
+    event.preventDefault();
+    return;
+  }
+  if (event.button === 2 && (mode === "local" || mode === "online")) {
+    event.preventDefault();
+    toggleZoom("mouse");
+    return;
+  }
+  if (event.button !== 0) return;
+  aimFromEvent(event);
+  shootMouseHunter();
 });
+canvas.addEventListener("pointerup", (event) => {
+  const touched = touchPoints.has(event.pointerId);
+  touchPoints.delete(event.pointerId);
+  const shoot = touched && armedTouchShot && !pinch;
+  if (touchPoints.size < 2) pinch = null;
+  if (!shoot) return;
+  armedTouchShot = false;
+  shootMouseHunter();
+});
+canvas.addEventListener("pointercancel", (event) => {
+  touchPoints.delete(event.pointerId);
+  armedTouchShot = false;
+  if (touchPoints.size < 2) pinch = null;
+});
+
+function pressZoom(direction) {
+  return (event) => {
+    event.preventDefault();
+    if (mode !== "local" && mode !== "online") return;
+    stepZoom("mouse", direction);
+  };
+}
+document.getElementById("zoom-in").addEventListener("pointerdown", pressZoom(1));
+document.getElementById("zoom-out").addEventListener("pointerdown", pressZoom(-1));
+canvas.addEventListener("wheel", (event) => {
+  if (mode !== "local" && mode !== "online") return;
+  event.preventDefault();
+  stepZoom("mouse", event.deltaY < 0 ? 1 : -1);
+}, { passive: false });
 canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
 window.addEventListener("keydown", (event) => {
@@ -1157,6 +1352,11 @@ window.addEventListener("keydown", (event) => {
   if (typing) return;
   if (event.repeat) return;
   keys[event.key.toLowerCase()] = true;
+  if (mode === "local" && (event.code === "KeyQ" || event.code === "KeyE")) {
+    event.preventDefault();
+    stepZoom("keys", event.code === "KeyQ" ? 1 : -1);
+    return;
+  }
   if (event.key === "Escape") {
     quitToMenu();
     return;
