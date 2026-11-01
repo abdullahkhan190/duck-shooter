@@ -135,7 +135,9 @@ canvas.aim { cursor: none; }
   position: relative;
   width: min(460px, 100%);
   max-height: calc(100vh - 32px);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   background:
     radial-gradient(circle at 12% 0%, rgba(255, 250, 240, 0.7), transparent 28%),
     linear-gradient(180deg, var(--paper), var(--paper-deep));
@@ -208,7 +210,7 @@ h2 { font-size: 36px; color: var(--rust); }
 
 .names {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -217,6 +219,7 @@ label {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
   font-weight: 800;
   font-size: 14px;
   margin-bottom: 12px;
@@ -250,6 +253,9 @@ label {
 }
 
 input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   font: 800 16px/1.2 Nunito, "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--cream);
@@ -346,10 +352,6 @@ button.texty {
 
 @media (max-width: 560px) {
   h1 { font-size: 42px; padding-right: 0; }
-  .names { grid-template-columns: 1fr; }
+  .names { grid-template-columns: minmax(0, 1fr); }
   .stamp { display: none; }
-}
-
-@media (max-height: 720px) {
-  .card { overflow: auto; }
 }

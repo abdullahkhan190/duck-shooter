@@ -1429,9 +1429,9 @@ function releaseStick() {
 
 function moveAimFromStick(dt) {
   const mag = Math.hypot(stick.x, stick.y);
-  if (mag < 0.06) return;
+  if (mag < 0.1) return;
   const amount = Math.min(1, mag);
-  const speed = 2800 * Math.pow(amount, 1.85);
+  const speed = 1500 * Math.pow(amount, 2.1);
   aim.x = clamp(aim.x + (stick.x / amount) * speed * dt, 0, WIDTH);
   aim.y = clamp(aim.y + (stick.y / amount) * speed * dt, 0, HEIGHT);
 }
